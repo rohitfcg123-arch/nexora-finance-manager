@@ -21,7 +21,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Create Android platform files
-        run: flutter create . --platforms=android --org com.nexora --project-name finance_manager
+        run: |
+          flutter create . --platforms=android --org com.nexora --project-name finance_manager
+          rm -f test/widget_test.dart
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build apk --debug
