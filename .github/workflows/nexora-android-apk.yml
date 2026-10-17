@@ -24,6 +24,12 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.nexora --project-name finance_manager
           rm -f test/widget_test.dart
+          # Current Flutter plugins require Android compile SDK 36 or newer.
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/' android/app/build.gradle
+          fi
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter build apk --debug
