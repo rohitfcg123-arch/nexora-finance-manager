@@ -35,11 +35,21 @@ jobs:
       - run: flutter pub get
       - name: Align Android plugin compile SDKs
         run: |
-          # Several cached Flutter plugins still declare compileSdk 34, while
-          # their current Android lifecycle dependency requires API 36.
-          find "$HOME/.pub-cache/hosted/pub.dev" -path '*/android/build.gradle' -type f -print0 | while IFS= read -r -d '' file; do
-            sed -i -E 's/compileSdkVersion[[:space:]]+34/compileSdkVersion 36/g; s/compileSdk[[:space:]]*=[[:space:]]*34/compileSdk = 36/g' "$file"
+          # Some plugin modules pin their own compile SDK, independent of app-level compileSdk.
+          find "$HOME/.pub-cache/hosted/pub.dev" -path '*/android/build.gradle*' -type f -print0 | while IFS= read -r -d '' file; do
+            sed -i -E 's/^[[:space:]]*compileSdkVersion[[:space:]]+.*/    compileSdkVersion 36/; s/^[[:space:]]*compileSdk[[:space:]]*=.*/    compileSdk = 36/' "$file"
           done
+          # Force compile SDK 36 for any plugin module still relying on Flutter defaults.
+          cat >> android/build.gradle <<'GRADLE'
+
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android.compileSdkVersion = 36
+                  }
+              }
+          }
+          GRADLE
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
