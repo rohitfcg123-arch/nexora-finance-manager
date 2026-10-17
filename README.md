@@ -31,3 +31,15 @@ Open `index.html` in a modern browser with an internet connection (third-party l
 - These are starter owner-isolation rules, not full schema validation. Add field/type validation and test in the Firebase Emulator before production use.
 - To deploy from a trusted development environment with Firebase CLI: `firebase deploy --only firestore:rules`.
 - Never deploy permissive public rules such as `allow read, write: if true;`.
+
+
+## Native Android app source
+
+The Flutter Android app lives in [`android_app/`](./android_app/). It is separate from the browser-based website.
+
+- [Flutter app entry point](./android_app/lib/main.dart)
+- [Firebase options](./android_app/lib/firebase_options.dart)
+- [Android app setup guide](./android_app/README.md)
+- [Android APK build workflow](./.github/workflows/nexora-android-apk.yml)
+
+The source includes Firebase email/password auth, user-scoped Firestore transactions, manual entry, and CSV/Excel plus best-effort text PDF import. Before production, register the Android app in Firebase and generate native FlutterFire configuration. Import formats vary by bank; inspect previews and verify every imported row. SMS tracking and PDF password decryption are not implemented in this version.
