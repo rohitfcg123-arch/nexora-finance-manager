@@ -33,6 +33,13 @@ jobs:
           echo 'Effective Android compile SDK:'
           grep -nE 'compileSdk(Version)?[[:space:]]*=?' android/app/build.gradle* || true
       - run: flutter pub get
+      - name: Align Android plugin compile SDKs
+        run: |
+          # Several cached Flutter plugins still declare compileSdk 34, while
+          # their current Android lifecycle dependency requires API 36.
+          find "$HOME/.pub-cache/hosted/pub.dev" -path '*/android/build.gradle' -type f -print0 | while IFS= read -r -d '' file; do
+            sed -i -E 's/compileSdkVersion[[:space:]]+34/compileSdkVersion 36/g; s/compileSdk[[:space:]]*=[[:space:]]*34/compileSdk = 36/g' "$file"
+          done
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
