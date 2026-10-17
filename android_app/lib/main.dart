@@ -48,7 +48,46 @@ class _HomeState extends State<Home>{
  final ledgers=['Personal Expenses','Office Expenses','Business Expenses','Bank Account','Income Account'];
  String autoCat(String n,bool income){if(income)return 'Salary / Income';final s=n.toLowerCase();if(RegExp(r'amazon|flipkart|myntra').hasMatch(s))return 'Shopping';if(RegExp(r'swiggy|zomato|restaurant|cafe|food').hasMatch(s))return 'Food & Dining';if(RegExp(r'uber|ola|irctc|petrol|fuel|flight').hasMatch(s))return 'Travel';if(RegExp(r'electricity|broadband|mobile bill|water bill').hasMatch(s))return 'Utilities';if(RegExp(r'bank charge|atm fee').hasMatch(s))return 'Bank Charges';return 'Other';}
  @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:Row(children:[Container(width:38,height:38,alignment:Alignment.center,decoration:BoxDecoration(color:green,borderRadius:BorderRadius.circular(12)),child:const Text('N',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:22)),),const SizedBox(width:10),const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Nexora',style:TextStyle(fontWeight:FontWeight.w900)),Text('FINANCE MANAGER',style:TextStyle(fontSize:9,letterSpacing:1.1))])]),actions:[IconButton(onPressed:importFile,icon:const Icon(Icons.upload_file)),IconButton(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout))]),body:IndexedStack(index:tab,children:[dashboard(),transactions(),reports(),settings()]),floatingActionButton:tab<2?FloatingActionButton.extended(backgroundColor:green,foregroundColor:Colors.white,onPressed:()=>edit(),icon:const Icon(Icons.add),label:const Text('Add transaction')):null,bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),backgroundColor:Colors.white,indicatorColor:mint,destinations:const[NavigationDestination(icon:Icon(Icons.home_outlined),label:'Home'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Transactions'),NavigationDestination(icon:Icon(Icons.pie_chart_outline),label:'Reports'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'Settings')]));
- Widget dashboard()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(300).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).toList();final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);return ListView(padding:const EdgeInsets.all(16),children:[Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[darkGreen,green]),borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('TOTAL CASH FLOW',style:TextStyle(color:Colors.white70,letterSpacing:1)),const SizedBox(height:10),Text(fmt.format(inc-exp),style:const TextStyle(color:Colors.white,fontSize:30,fontWeight:FontWeight.w900)),const SizedBox(height:18),Row(children:[Expanded(child:Text('Income\n'+fmt.format(inc),style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700))),Expanded(child:Text('Expenses\n'+fmt.format(exp),style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700)))])]),const SizedBox(height:14),Row(children:[Expanded(child:quick('Manual entry',Icons.add_circle_outline,()=>edit())),const SizedBox(width:8),Expanded(child:quick('Import statement',Icons.upload_file,importFile)),const SizedBox(width:8),Expanded(child:quick('Reports',Icons.pie_chart_outline,()=>setState(()=>tab=2)))]),const SizedBox(height:20),title('Recent transactions','View all',()=>setState(()=>tab=1)),if(s.hasError)const Text('Firestore error: check that rules are published.') else if(list.isEmpty)const Text('No transactions yet. Add a transaction or import a statement.') else ...list.take(8).map(tile)]);});
+ Widget dashboard()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
+  stream:ref.orderBy('date',descending:true).limit(300).snapshots(),
+  builder:(c,s){
+   final list=(s.data?.docs??[]).map(Txn.doc).toList();
+   final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);
+   final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);
+   return ListView(
+    padding:const EdgeInsets.all(16),
+    children:[
+     Container(
+      padding:const EdgeInsets.all(20),
+      decoration:BoxDecoration(gradient:const LinearGradient(colors:[darkGreen,green]),borderRadius:BorderRadius.circular(24)),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+       const Text('TOTAL CASH FLOW',style:TextStyle(color:Colors.white70,letterSpacing:1)),
+       const SizedBox(height:10),
+       Text(fmt.format(inc-exp),style:const TextStyle(color:Colors.white,fontSize:30,fontWeight:FontWeight.w900)),
+       const SizedBox(height:18),
+       Row(children:[
+        Expanded(child:Text('Income\n${fmt.format(inc)}',style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700))),
+        Expanded(child:Text('Expenses\n${fmt.format(exp)}',style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700))),
+       ]),
+      ]),
+     ),
+     const SizedBox(height:14),
+     Row(children:[
+      Expanded(child:quick('Manual entry',Icons.add_circle_outline,()=>edit())),
+      const SizedBox(width:8),
+      Expanded(child:quick('Import statement',Icons.upload_file,importFile)),
+      const SizedBox(width:8),
+      Expanded(child:quick('Reports',Icons.pie_chart_outline,()=>setState(()=>tab=2))),
+     ]),
+     const SizedBox(height:20),
+     title('Recent transactions','View all',()=>setState(()=>tab=1)),
+     if(s.hasError) const Text('Firestore error: check that rules are published.')
+     else if(list.isEmpty) const Text('No transactions yet. Add a transaction or import a statement.')
+     else ...list.take(8).map((t)=>tile(t)),
+    ],
+   );
+  },
+ );
  Widget quick(String label,IconData icon,VoidCallback onTap)=>Expanded(child:InkWell(onTap:onTap,borderRadius:BorderRadius.circular(15),child:Container(padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFE1E9E4)),borderRadius:BorderRadius.circular(15)),child:Column(children:[Icon(icon,color:green,size:27),const SizedBox(height:6),Text(label,textAlign:TextAlign.center,style:const TextStyle(fontSize:10,fontWeight:FontWeight.w700))]))));
  Widget title(String t,String action,VoidCallback cb)=>Row(children:[Expanded(child:Text(t,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),TextButton(onPressed:cb,child:Text(action))]);
  Widget tile(Txn t)=>Card(color:Colors.white,elevation:0,child:ListTile(onTap:()=>edit(t),leading:CircleAvatar(backgroundColor:t.income?mint:const Color(0xFFFFF1E7),child:Icon(t.income?Icons.south_west:Icons.north_east,color:t.income?green:Colors.deepOrange)),title:Text(t.title,style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text(t.category+' • '+DateFormat('dd MMM').format(t.date)+' • '+t.source,style:const TextStyle(fontSize:10)),trailing:Text((t.income?'+':'−')+fmt.format(t.amount),style:TextStyle(fontWeight:FontWeight.w800,color:t.income?green:ink))));
