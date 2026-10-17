@@ -20,3 +20,14 @@ Open `index.html` in a modern browser with an internet connection (third-party l
 - Data currently stays in this browser's localStorage. Clearing browser data can erase it. Export CSV backups regularly.
 - Do not upload real customer financial statements to a public website. If deploying for real use, make the repository and hosting access appropriate, implement authentication and strict per-user access rules, secure backend secrets, and review privacy/compliance requirements.
 - Never provide a bank password, UPI PIN, or OTP to this app.
+
+
+## Firebase Firestore security rules
+
+- Rules source: [`firestore.rules`](./firestore.rules)
+- Firebase CLI config: [`firebase.json`](./firebase.json)
+- Rules allow authenticated users to access only `users/{theirAuthUid}` and its nested collections. Other paths are denied.
+- Suggested layout: `users/{uid}/transactions/{id}`, `accounts/{id}`, `categories/{id}`, `rules/{id}`, and `imports/{id}`.
+- These are starter owner-isolation rules, not full schema validation. Add field/type validation and test in the Firebase Emulator before production use.
+- To deploy from a trusted development environment with Firebase CLI: `firebase deploy --only firestore:rules`.
+- Never deploy permissive public rules such as `allow read, write: if true;`.
