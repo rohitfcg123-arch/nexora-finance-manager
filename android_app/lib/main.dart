@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as xls;
@@ -178,10 +180,10 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     final text = StringBuffer();
     try {
-      for (var pageNumber = 1; pageNumber <= document.pagesCount; pageNumber++) {
+      for (var pageNumber = 1; pageNumber <= document.pageCount; pageNumber++) {
         final page = await document.getPage(pageNumber);
         try {
-          final renderWidth = page.width > 1600 ? 1600 : page.width * 2;
+          final renderWidth = page.width > 800 ? 1600 : (page.width * 2).round();
           final renderHeight = (page.height * renderWidth / page.width).round();
           final renderedImage = await page.render(
             width: renderWidth,
@@ -189,7 +191,14 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
           );
           final imagePath = '${temporaryDirectory.path}/nexora_ocr_$pageNumber.png';
           final imageFile = File(imagePath);
-          await imageFile.writeAsBytes(renderedImage.bytes, flush: true);
+          final raster = await renderedImage.createImageIfNotAvailable();
+          try {
+            final pngBytes = await raster.toByteData(format: ui.ImageByteFormat.png);
+            if (pngBytes == null) throw Exception('Could not encode an OCR page image.');
+            await imageFile.writeAsBytes(pngBytes.buffer.asUint8List(), flush: true);
+          } finally {
+            raster.dispose();
+          }
           try {
             final recognized = await recognizer.processImage(
               InputImage.fromFilePath(imagePath),
@@ -199,12 +208,12 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
             if (await imageFile.exists()) await imageFile.delete();
           }
         } finally {
-          await page.close();
+          // PdfPage objects are owned by the document and are released on dispose.
         }
       }
     } finally {
       await recognizer.close();
-      await document.close();
+      await document.dispose();
     }
     return text.toString();
   }
