@@ -7,6 +7,8 @@ import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as xls;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +28,11 @@ final dateFmt=DateFormat('dd MMM yyyy');
 Future<void> main() async {
  WidgetsFlutterBinding.ensureInitialized();
  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+ // Debug APKs use the App Check debug provider for local/sideloaded testing.
+ // Release builds use Play Integrity, registered in Firebase Console.
+ await FirebaseAppCheck.instance.activate(
+   androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+ );
  runApp(const NexoraApp());
 }
 class NexoraApp extends StatelessWidget {
