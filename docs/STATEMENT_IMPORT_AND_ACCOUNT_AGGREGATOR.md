@@ -6,7 +6,7 @@ This repository contains a Flutter Android app with Firebase email/password auth
 
 ### Not yet production-ready
 - Universal bank-statement parsing is not guaranteed. Each bank, statement version, locale, and export format can vary; the preview is mandatory and users must verify dates, debit/credit, opening/closing balance.
-- Scanned/image-only PDFs do not have OCR wired into the Flutter import path yet. Current Syncfusion PDF extraction reads existing text; it does not itself perform OCR. Do not advertise scanned-PDF import as working until an OCR engine and PDF-page rasterization path are integrated and tested on Android.
+- Scanned/image-only PDFs now trigger a `pdf_ocr` fallback when normal PDF text extraction returns almost no text and a local file path is available. This integration is newly added and remains unverified until Android CI/build and tests on real scanned bank statements pass. OCR output may still need bank-specific parsing and manual review.
 - Account Aggregator linking and live transaction sync are not implemented. The UI must remain explicit that bank linking is not active.
 
 ## Account Aggregator integration — required architecture
@@ -39,7 +39,7 @@ Security requirements:
 
 ## OCR implementation gate
 
-For scanned PDFs, integrate an OCR solution that supports Android and a reliable PDF-page-to-image renderer, or a secured server-side OCR pipeline. Decide whether processing must remain on-device or can be sent to a backend. Add page limits, file-size limits, clear permission/privacy disclosures, progress, confidence/uncertain-row review, and tests with scanned statements from several banks. OCR output must go through the same transaction normalization, duplicate detection, preview, and user confirmation as digital PDFs.
+For scanned PDFs, verify the newly added `pdf_ocr` fallback on Android and confirm whether the package performs processing on-device or invokes any external service before production use. Add page/file-size limits, progress, confidence/uncertain-row review, and tests with scanned statements from several banks. OCR output must go through the same transaction normalization, duplicate detection, preview, and user confirmation as digital PDFs.
 
 ## Test checklist before release
 
