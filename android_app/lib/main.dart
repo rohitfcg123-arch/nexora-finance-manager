@@ -7,6 +7,7 @@ import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as xls;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -147,6 +148,8 @@ class _HomeState extends State<Home>{
       const SizedBox(width:8),
       Expanded(child:quick('Reports',Icons.pie_chart_outline,()=>setState(()=>tab=2))),
      ]),
+     const SizedBox(height:8),
+     Row(children:[Expanded(child:quick('AI PDF Reader',Icons.auto_awesome,analyzePdfWithAi))]),
      const SizedBox(height:20),
      title('Recent transactions','View all',()=>setState(()=>tab=1)),
      if(s.hasError) const Text('Firestore error: check that rules are published.')
@@ -247,6 +250,108 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
       await document.dispose();
     }
     return text.toString();
+  }
+
+Future<void> analyzePdfWithAi() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) { snack('Could not read PDF.'); return; }
+    if (bytes.length > 18 * 1024 * 1024) {
+      snack('PDF is too large for direct AI analysis. Please choose a PDF under 18 MB.');
+      return;
+    }
+    final question = TextEditingController(
+      text: 'Read this PDF carefully. Summarize its contents. If it is a bank statement, identify the statement period, opening and closing balance if present, total debit and credit if available, and important transactions. Do not guess missing values; clearly flag uncertain data.',
+    );
+    var loading = false;
+    var answer = '';
+    String? error;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => AlertDialog(
+          title: Text('AI PDF Reader — ${file.name}'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Ask Gemini to read this PDF. The selected document is sent online to Google Gemini for analysis. Avoid uploading PDFs containing information you do not want processed by an AI service.'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: question,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(labelText: 'What should AI read or find?', border: OutlineInputBorder()),
+                  ),
+                  if (loading) ...[
+                    const SizedBox(height: 16),
+                    const Center(child: CircularProgressIndicator()),
+                    const SizedBox(height: 8),
+                    const Text('AI is reading the PDF…'),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(error!, style: const TextStyle(color: Colors.red)),
+                  ],
+                  if (answer.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('AI result', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    SelectableText(answer),
+                    const SizedBox(height: 8),
+                    const Text('Verify figures against the original PDF before making financial decisions.', style: TextStyle(fontSize: 12, color: Colors.deepOrange)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: loading ? null : () => Navigator.pop(dialogContext), child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: loading ? null : () async {
+                if (question.text.trim().isEmpty) {
+                  refresh(() => error = 'Enter what you want AI to find.');
+                  return;
+                }
+                refresh(() { loading = true; error = null; });
+                try {
+                  final model = FirebaseAI.googleAI().generativeModel(model: 'gemini-3.8-flash');
+                  final response = await model.generateContent([
+                    Content.multi([
+                      InlineDataPart('application/pdf', bytes),
+                      TextPart(question.text.trim()),
+                    ]),
+                  ]);
+                  final resultText = response.text?.trim();
+                  if (resultText == null || resultText.isEmpty) {
+                    throw Exception('AI returned an empty response. Try a different question or PDF.');
+                  }
+                  refresh(() { answer = resultText; loading = false; });
+                } catch (e) {
+                  refresh(() {
+                    loading = false;
+                    error = 'AI could not read this PDF. Check Firebase AI Logic setup, internet connection, and try again. Details: $e';
+                  });
+                }
+              },
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Read with AI'),
+            ),
+          ],
+        ),
+      ),
+    );
+    question.dispose();
   }
 
 Future<void> importFile() async {
