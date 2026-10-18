@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pdf_ocr/pdf_ocr.dart';
+import 'package:telephony/telephony.dart';
 import 'firebase_options.dart';
 
 const green=Color(0xFF075C43), darkGreen=Color(0xFF063B2E), mint=Color(0xFFE6F5ED), bg=Color(0xFFF4F7F5), ink=Color(0xFF17231E);
@@ -44,6 +45,47 @@ class _LoginState extends State<LoginScreen>{
 class Home extends StatefulWidget {const Home({super.key,required this.user}); final User user; @override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home>{
  int tab=0; String search='',filter='All';
+ final Telephony smsApi = Telephony.instance;
+ bool smsTrackingEnabled = false;
+ @override void initState(){super.initState();}
+
+ Future<void> enableSmsTracking() async {
+  try {
+   final granted = await smsApi.requestPhoneAndSmsPermissions ?? false;
+   if (!granted) { snack('SMS permission was not granted. Tracking remains off.'); return; }
+   setState(() => smsTrackingEnabled = true);
+   final messages = await smsApi.getInboxSms(columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE]);
+   var imported = 0;
+   for (final message in messages) { if (await saveBankSms(message)) imported++; }
+   smsApi.listenIncomingSms(onNewMessage: (SmsMessage message) { saveBankSms(message); }, listenInBackground: false);
+   snack('SMS tracking enabled. Imported $imported detected transactions from existing messages.');
+  } catch (e) { snack('Could not enable SMS tracking: $e'); }
+ }
+
+ Future<bool> saveBankSms(SmsMessage message) async {
+  final body = (message.body ?? '').trim();
+  if (body.isEmpty) return false;
+  final lower = body.toLowerCase();
+  if (RegExp(r'\\botp\\b|one.time.password|verification code|do not share|never share').hasMatch(lower)) return false;
+  final debit = RegExp(r'debited|spent|withdrawn|paid|purchase|sent|payment of').hasMatch(lower);
+  final credit = RegExp(r'credited|received|deposited|refund|cashback|salary credited').hasMatch(lower);
+  if (debit == credit) return false;
+  final amountMatch = RegExp(r'(?:inr|rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body)
+      ?? RegExp(r'(?:amount|amt)\\s*[:=-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body);
+  if (amountMatch == null) return false;
+  final amount = double.tryParse(amountMatch.group(1)!.replaceAll(',', ''));
+  if (amount == null || amount <= 0) return false;
+  final date = DateTime.fromMillisecondsSinceEpoch(message.date ?? DateTime.now().millisecondsSinceEpoch);
+  final address = message.address ?? 'bank';
+  final fingerprint = '$address|${message.date ?? 0}|$body';
+  final id = 'sms_${base64Url.encode(utf8.encode(fingerprint)).replaceAll('=', '').substring(0, 28)}';
+  final merchantMatch = RegExp(r'(?:at|to|from)\\s+([A-Za-z0-9 .&_-]{2,40})', caseSensitive: false).firstMatch(body);
+  final title = merchantMatch?.group(1)?.trim() ?? (credit ? 'Bank credit' : 'Bank debit');
+  try {
+   await ref.doc(id).set(Txn(id:id,title:title,amount:amount,date:date,income:credit,category:autoCat(title,credit),ledger:credit?'Income Account':'Personal Expenses',note:'SMS sender: $address',source:'Bank SMS').map(), SetOptions(merge:true));
+   return true;
+  } catch (_) { return false; }
+ }
  CollectionReference<Map<String,dynamic>> get ref=>FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('transactions');
  final categories=['Food & Dining','Shopping','Travel','Utilities','Salary / Income','Bank Charges','Transfer','Health','Other'];
  final ledgers=['Personal Expenses','Office Expenses','Business Expenses','Bank Account','Income Account'];
