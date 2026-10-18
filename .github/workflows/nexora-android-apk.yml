@@ -23,6 +23,9 @@ jobs:
       - name: Create Android platform files
         run: |
           flutter create . --platforms=android --org com.nexora --project-name finance_manager
+          # Install the registered Android Firebase client config into the generated platform project.
+          test -s google-services.json
+          cp google-services.json android/app/google-services.json
           rm -f test/widget_test.dart
           # SMS access is opt-in in the app; declare permissions for Android runtime prompts.
           sed -i '/<manifest /a\    <uses-permission android:name="android.permission.READ_SMS" />\n    <uses-permission android:name="android.permission.RECEIVE_SMS" />' android/app/src/main/AndroidManifest.xml
