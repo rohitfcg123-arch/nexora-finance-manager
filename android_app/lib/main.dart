@@ -15,6 +15,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf_render_maintained/pdf_render_maintained.dart' as pdf_renderer;
 import 'package:telephony/telephony.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 
 const green=Color(0xFF075C43), darkGreen=Color(0xFF063B2E), mint=Color(0xFFE6F5ED), bg=Color(0xFFF4F7F5), ink=Color(0xFF17231E);
@@ -55,6 +56,25 @@ class _HomeState extends State<Home>{
  @override void initState(){super.initState();}
 
  Future<void> enableSmsTracking() async {
+  // Show a prominent in-app disclosure and obtain affirmative consent before requesting SMS access.
+  final consent = await showDialog<bool>(
+   context: context,
+   barrierDismissible: false,
+   builder: (ctx) => AlertDialog(
+    title: const Text('Before enabling SMS tracking'),
+    content: const SingleChildScrollView(child: Text(
+     'Nexora will read SMS messages on this device to look for bank transaction alerts. Message text is processed on this device by the current parser. When a transaction is recognised, Nexora saves derived details such as amount, date, title/category and the SMS sender address to your account in Firebase. The app is not designed to upload the full SMS body. Detection may be incomplete or incorrect, so review every entry. SMS tracking is optional. Choose Continue only if you agree.',
+    )),
+    actions: [
+     TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+     TextButton(onPressed: () async {
+      await launchUrl(Uri.parse('https://rohitfcg123-arch.github.io/nexora-finance-manager/privacy-policy.html'), mode: LaunchMode.externalApplication);
+     }, child: const Text('Privacy policy')),
+     FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Continue')),
+    ],
+   ),
+  );
+  if (consent != true || !mounted) return;
   try {
    final granted = await smsApi.requestPhoneAndSmsPermissions ?? false;
    if (!granted) { snack('SMS permission was not granted. Tracking remains off.'); return; }
@@ -147,6 +167,17 @@ class _HomeState extends State<Home>{
       const Text('Settings', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
       ListTile(leading: const Icon(Icons.person), title: Text(widget.user.email ?? ''), subtitle: const Text('Signed in with Firebase')),
       ListTile(leading: const Icon(Icons.upload_file), title: const Text('Import bank statement'), subtitle: const Text('PDF, scanned PDF, CSV, XLS, XLSX — support depends on file format'), onTap: importFile),
+      ListTile(
+        leading: const Icon(Icons.privacy_tip_outlined),
+        title: const Text('Privacy policy'),
+        subtitle: const Text('How account, transaction and optional SMS data are handled'),
+        trailing: const Icon(Icons.open_in_new),
+        onTap: () async {
+          final uri = Uri.parse('https://rohitfcg123-arch.github.io/nexora-finance-manager/privacy-policy.html');
+          final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+          if (!opened && mounted) snack('Could not open the privacy policy. Visit the link from the app website.');
+        },
+      ),
       ListTile(
         leading: const Icon(Icons.sms_outlined),
         title: const Text('Bank SMS tracking'),
