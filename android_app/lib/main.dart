@@ -160,7 +160,7 @@ class _HomeState extends State<Home>{
  Widget title(String t,String action,VoidCallback cb)=>Row(children:[Expanded(child:Text(t,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),TextButton(onPressed:cb,child:Text(action))]);
  Widget tile(Txn t)=>Card(color:Colors.white,elevation:0,child:ListTile(onTap:()=>edit(t),leading:CircleAvatar(backgroundColor:t.income?mint:const Color(0xFFFFF1E7),child:Icon(t.income?Icons.south_west:Icons.north_east,color:t.income?green:Colors.deepOrange)),title:Text(t.title,style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text(t.category+' • '+DateFormat('dd MMM').format(t.date)+' • '+t.source,style:const TextStyle(fontSize:10)),trailing:Text((t.income?'+':'−')+fmt.format(t.amount),style:TextStyle(fontWeight:FontWeight.w800,color:t.income?green:ink))));
  Widget transactions()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).where((t)=>(filter=='All'||(filter=='Income'?t.income:!t.income))&&(t.title+' '+t.category+' '+t.note).toLowerCase().contains(search.toLowerCase())).toList();return ListView(padding:const EdgeInsets.all(16),children:[const Text('Transactions',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:10),TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search transactions')),Wrap(spacing:8,children:['All','Expense','Income'].map((v)=>ChoiceChip(label:Text(v),selected:filter==v,onSelected:(_)=>setState(()=>filter=v))).toList()),...list.map(tile)]);});
- Widget reports()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).toList();final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);final totals=<String,double>{};for(final t in list.where((t)=>!t.income)){totals[t.category]=(totals[t.category]??0)+t.amount;}final entries=totals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));return ListView(padding:const EdgeInsets.all(16),children:[const Text('Reports & analytics',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:12),Text('Income: '+fmt.format(inc)),Text('Expenses: '+fmt.format(exp)),const SizedBox(height:18),const Text('Expenses by category',style:TextStyle(fontWeight:FontWeight.w800)),...entries.map((e)=>ListTile(title:Text(e.key),subtitle:LinearProgressIndicator(value:exp==0?0:e.value/exp,color:green,backgroundColor:mint),trailing:Text(fmt.format(e.value))))]);});
+ Widget reports()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).toList();final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);final totals=<String,double>{};for(final t in list.where((t)=>!t.income)){totals[t.category]=(totals[t.category]??0)+t.amount;}final entries=totals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));return ListView(padding:const EdgeInsets.all(16),children:[const Text('Reports & analytics',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:12),FilledButton.icon(onPressed:()=>exportReport(list),icon:const Icon(Icons.picture_as_pdf),label:const Text('Generate PDF report')),const SizedBox(height:12),Text('Income: '+fmt.format(inc)),Text('Expenses: '+fmt.format(exp)),const SizedBox(height:18),const Text('Expenses by category',style:TextStyle(fontWeight:FontWeight.w800)),...entries.map((e)=>ListTile(title:Text(e.key),subtitle:LinearProgressIndicator(value:exp==0?0:e.value/exp,color:green,backgroundColor:mint),trailing:Text(fmt.format(e.value))))]);});
   Widget settings() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
@@ -382,6 +382,59 @@ Future<void> importFile() async {
       snack('Import failed: ${e.toString().replaceFirst('Exception: ', '')}');
     }
   }
+
+
+ Future<void> exportReport(List<Txn> transactions) async {
+  final sorted=[...transactions]..sort((a,b)=>a.date.compareTo(b.date));
+  final income=sorted.where((t)=>t.income).fold<double>(0,(sum,t)=>sum+t.amount);
+  final expenses=sorted.where((t)=>!t.income).fold<double>(0,(sum,t)=>sum+t.amount);
+  final document=PdfDocument();
+  try {
+   var page=document.pages.add();
+   final titleFont=PdfStandardFont(PdfFontFamily.helvetica,18,style:PdfFontStyle.bold);
+   final headingFont=PdfStandardFont(PdfFontFamily.helvetica,12,style:PdfFontStyle.bold);
+   final bodyFont=PdfStandardFont(PdfFontFamily.helvetica,9);
+   var y=24.0;
+   page.graphics.drawString('Nexora Finance Manager',titleFont,bounds:Rect.fromLTWH(24,y,520,28));
+   y+=32;
+   page.graphics.drawString('Account statement tracking report',headingFont,bounds:Rect.fromLTWH(24,y,520,20));
+   y+=24;
+   page.graphics.drawString('Generated: ${DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now())}',bodyFont,bounds:Rect.fromLTWH(24,y,520,16));
+   y+=24;
+   page.graphics.drawString('Transactions: ${sorted.length}    Income: ${fmt.format(income)}    Expenses: ${fmt.format(expenses)}    Net: ${fmt.format(income-expenses)}',bodyFont,bounds:Rect.fromLTWH(24,y,540,20));
+   y+=30;
+   void drawHeader(PdfPage target,double top){
+    target.graphics.drawString('Date',headingFont,bounds:Rect.fromLTWH(24,top,65,18));
+    target.graphics.drawString('Description',headingFont,bounds:Rect.fromLTWH(92,top,210,18));
+    target.graphics.drawString('Type',headingFont,bounds:Rect.fromLTWH(308,top,52,18));
+    target.graphics.drawString('Category',headingFont,bounds:Rect.fromLTWH(364,top,90,18));
+    target.graphics.drawString('Amount',headingFont,bounds:Rect.fromLTWH(458,top,90,18));
+   }
+   drawHeader(page,y); y+=20;
+   for(final tx in sorted){
+    if(y>760){
+     page=document.pages.add();
+     y=24;
+     page.graphics.drawString('Nexora Finance Manager — continued',headingFont,bounds:Rect.fromLTWH(24,y,520,20));
+     y+=26; drawHeader(page,y); y+=20;
+    }
+    page.graphics.drawString(dateFmt.format(tx.date),bodyFont,bounds:Rect.fromLTWH(24,y,65,16));
+    page.graphics.drawString(tx.title.length>32?'${tx.title.substring(0,29)}...':tx.title,bodyFont,bounds:Rect.fromLTWH(92,y,210,16));
+    page.graphics.drawString(tx.income?'Credit':'Debit',bodyFont,bounds:Rect.fromLTWH(308,y,52,16));
+    page.graphics.drawString(tx.category.length>14?'${tx.category.substring(0,11)}...':tx.category,bodyFont,bounds:Rect.fromLTWH(364,y,90,16));
+    page.graphics.drawString(fmt.format(tx.amount),bodyFont,bounds:Rect.fromLTWH(458,y,90,16));
+    y+=17;
+   }
+   final bytes=Uint8List.fromList(document.saveSync());
+   final path=await FilePicker.platform.saveFile(fileName:'Nexora_Finance_Report.pdf',bytes:bytes,type:FileType.custom,allowedExtensions:['pdf']);
+   if(path==null){snack('PDF export cancelled.');return;}
+   snack('PDF report saved successfully.');
+  } catch(e) {
+   snack('PDF report could not be generated: $e');
+  } finally {
+   document.dispose();
+  }
+ }
 
   List<List<dynamic>> parsePdf(String text){
   // ICICI statements place the merchant, transaction amount and UPI reference
