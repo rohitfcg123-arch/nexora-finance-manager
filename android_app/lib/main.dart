@@ -256,12 +256,7 @@ Future<void> importFile() async {
           pdf.dispose();
         }
         if (extractedText.trim().length < 80) {
-          final path = file.path;
-          if (path == null || path.isEmpty) {
-            throw Exception(
-              'This looks like a scanned/image PDF but the file path is unavailable for OCR. Save the PDF to device storage and select it again.',
-            );
-          }
+          // OCR uses the picked bytes directly; a filesystem path is not required.
           extractedText = await extractScannedPdfText(bytes);
         }
         rows = parsePdf(extractedText);
