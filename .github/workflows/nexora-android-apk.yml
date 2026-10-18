@@ -2,9 +2,14 @@ name: Build Nexora Android APK
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - 'android_app/**'
       - '.github/workflows/nexora-android-apk.yml'
+# If several Android commits arrive close together, keep only the newest build running.
+concurrency:
+  group: nexora-android-apk-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
