@@ -114,6 +114,17 @@ jobs:
             find . -type f -name '*.apk' -print 2>/dev/null || true
             exit 1
           fi
+      - name: Print APK signing certificate fingerprints
+        shell: bash
+        run: |
+          APK="android_app/build/app/outputs/flutter-apk/app-debug.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner was not found in Android SDK Build Tools"
+            exit 1
+          fi
+          echo "APK signing certificate fingerprints (for App Check registration):"
+          "$APKSIGNER" verify --print-certs "$APK"
       - uses: actions/upload-artifact@v4
         with:
           name: nexora-finance-manager-debug-apk
