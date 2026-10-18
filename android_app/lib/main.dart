@@ -388,7 +388,7 @@ Future<void> importFile() async {
   // on separate visual lines. Preserve layout spacing and parse each numbered
   // transaction row instead of expecting date/narration/amount on one line.
   final rows=<List<dynamic>>[['Date','Narration','Debit','Credit']];
-  final iciciRow=RegExp(r'^\s*(\d{1,4})\s+(\d{2}\.\d{2}\.\d{4})\s+(.*)$');
+  final iciciRow=RegExp(r'^\s*(\d{1,5})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s+(.*)
   final money=RegExp(r'\d[\d,]*\.\d{2}');
   final skip=<String>[
    'transaction remarks','withdrawal amount','deposit amount','balance (inr)',
@@ -401,7 +401,75 @@ Future<void> importFile() async {
   final narrationLines=<String>[];
   var recognized=0;
   for(final line in text.split(RegExp(r'[\r\n]+'))){
-   if(line.contains('S No.')){inTable=true;narrationLines.clear();continue;}
+   if(line.toLowerCase().contains('s no') && (line.toLowerCase().contains('date') || line.toLowerCase().contains('transaction'))){inTable=true;narrationLines.clear();continue;}
+   if(!inTable)continue;
+   final lower=line.toLowerCase();
+   if(skip.any((s)=>lower.contains(s)))continue;
+   final match=iciciRow.firstMatch(line);
+   if(match!=null){
+    final values=money.allMatches(match.group(3)!).toList();
+    if(values.length>=2){
+     final transactionAmount=values[values.length-2];
+     final amount=double.tryParse(transactionAmount.group(0)!.replaceAll(',',''))??0;
+     final groupStart=line.indexOf(match.group(3)!);final absolutePosition=(groupStart<0?0:groupStart)+transactionAmount.start;
+     // In this ICICI layout, withdrawal amounts start left of the deposit
+     // column; deposits are consistently positioned farther to the right.
+     final lowerHeader=text.toLowerCase();
+     final debitHeader=lowerHeader.indexOf('withdrawal amount');
+     final creditHeader=lowerHeader.indexOf('deposit amount');
+     final isDeposit=creditHeader>=0 && debitHeader>=0 ? (creditHeader>debitHeader ? absolutePosition>=((creditHeader+debitHeader)~/2) : absolutePosition<((creditHeader+debitHeader)~/2)) : RegExp(r'\\b(cr|credit|credited)\\b',caseSensitive:false).hasMatch(line);
+     final candidates=narrationLines
+      .map((s)=>s.trim())
+      .where((s)=>s.isNotEmpty && !RegExp(r'^\d+$').hasMatch(s))
+      .where((s)=>!skip.any((x)=>s.toLowerCase().contains(x)))
+      .toList();
+     final merchant=candidates.reversed.firstWhere(
+      (s)=>!s.toUpperCase().startsWith('UPI/'),
+      orElse:()=>candidates.isEmpty?'':candidates.last,
+     );
+     if(amount>0 && merchant.isNotEmpty){
+      rows.add([match.group(2),merchant,isDeposit?'':amount.toStringAsFixed(2),isDeposit?amount.toStringAsFixed(2):'']);
+      recognized++;
+     }
+    }
+    narrationLines.clear();
+    continue;
+   }
+   if(line.trim().isNotEmpty && !RegExp(r'^\d+$').hasMatch(line.trim())){
+    narrationLines.add(line);
+   }
+  }
+  if(recognized>=3)return rows;
+  // Keep a conservative fallback for other text-based PDFs.
+  final fallback=<List<dynamic>>[['Date','Narration','Amount']];
+  final date=RegExp(r'^(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(.+)$');
+  final amt=RegExp(r'(-?\d[\d,]*\.\d{2})(?:\s*(CR|DR))?\s*$',caseSensitive:false);
+  for(final line in text.split(RegExp(r'[\r\n]+'))){
+   final d=date.firstMatch(line.trim());if(d==null)continue;
+   final a=amt.firstMatch(d.group(2)!);if(a==null)continue;
+   final narr=d.group(2)!.substring(0,a.start).trim();if(narr.isEmpty)continue;
+   fallback.add([d.group(1),narr,(a.group(1)??'')+(a.group(2)==null?'':' '+a.group(2)! )]);
+  }
+  return fallback;
+ }
+ List<Txn> parseRows(List<List<dynamic>> rows){if(rows.length<2)return[];String norm(dynamic v)=>v.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final h=rows.first.map(norm).toList();int ix(List<String> names)=>h.indexWhere((x)=>names.any((n)=>x.contains(n)));final di=ix(['date','transactiondate','valuedate']),ni=ix(['narration','description','particulars','details','remarks','merchant','payee']),de=ix(['debit','withdrawal','paidout']),cr=ix(['credit','deposit','paidin']),am=ix(['amount','transactionamount']);if(di<0||ni<0||(de<0&&cr<0&&am<0))throw Exception('Could not identify Date, Narration and amount columns.');String cell(List<dynamic> r,int i)=>i>=0&&i<r.length?r[i].toString().trim():'';double val(String s)=>double.tryParse(s.replaceAll(RegExp(r'[^0-9.]'),''))??0;DateTime? dt(String s){for(final f in ['dd/MM/yyyy','dd-MM-yyyy','dd.MM.yyyy','d/M/yy','yyyy-MM-dd','dd MMM yyyy']){try{return DateFormat(f).parseStrict(s);}catch(_){}}return null;}final out=<Txn>[];for(final r in rows.skip(1)){final title=cell(r,ni);if(title.isEmpty)continue;final debit=val(cell(r,de)),credit=val(cell(r,cr));final raw=cell(r,am);final income=credit>0?true:debit>0?false:(raw.toLowerCase().contains('cr')||raw.startsWith('+'));final amount=credit>0?credit:debit>0?debit:val(raw);if(amount<=0)continue;final parsedDate=dt(cell(r,di));if(parsedDate==null)continue;final normalizedTitle=title.toLowerCase().replaceAll(RegExp(r'\s+'),' ').trim();final fingerprint='${DateFormat('yyyy-MM-dd').format(parsedDate)}|$normalizedTitle|${amount.toStringAsFixed(2)}|$income';final stableId=base64Url.encode(utf8.encode(fingerprint)).replaceAll('=','');out.add(Txn(id:'stmt_${stableId.substring(0,stableId.length>180?180:stableId.length)}',title:title,amount:amount,date:parsedDate,income:income,category:autoCat(title,income),ledger:income?'Income Account':'Personal Expenses',source:'Statement import'));}return out;}
+ String autoCatUnused(String n,bool income){if(income)return'Salary / Income';final s=n.toLowerCase();if(RegExp(r'amazon|flipkart|myntra').hasMatch(s))return'Shopping';if(RegExp(r'swiggy|zomato|restaurant|cafe|food').hasMatch(s))return'Food & Dining';if(RegExp(r'uber|ola|irctc|petrol|fuel|flight').hasMatch(s))return'Travel';if(RegExp(r'electricity|broadband|mobile bill|water bill').hasMatch(s))return'Utilities';if(RegExp(r'bank charge|atm fee').hasMatch(s))return'Bank Charges';return'Other';}
+ void snack(String s){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));}
+}
+);
+  final money=RegExp(r'\d[\d,]*\.\d{2}');
+  final skip=<String>[
+   'transaction remarks','withdrawal amount','deposit amount','balance (inr)',
+   'transaction date','s no.','www.icici.bank.in','dial your bank',
+   'please call from your registered mobile number','never share your otp',
+   'statement of transactions','your base branch:','ground floor, industry house',
+   'camac street','west bengal - india','banjemari koliya','amount (inr)'
+  ];
+  bool inTable=false;
+  final narrationLines=<String>[];
+  var recognized=0;
+  for(final line in text.split(RegExp(r'[\r\n]+'))){
+   if(line.toLowerCase().contains('s no') && (line.toLowerCase().contains('date') || line.toLowerCase().contains('transaction'))){inTable=true;narrationLines.clear();continue;}
    if(!inTable)continue;
    final lower=line.toLowerCase();
    if(skip.any((s)=>lower.contains(s)))continue;
