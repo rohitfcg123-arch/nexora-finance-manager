@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as xls;
@@ -8,7 +9,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
-import 'package:pdf_ocr/pdf_ocr.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf_renderer/pdf_renderer.dart' as pdf_renderer;
 import 'package:telephony/telephony.dart';
 import 'firebase_options.dart';
 
@@ -169,7 +172,44 @@ class _HomeState extends State<Home>{
   
 Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.title??''),amountC=TextEditingController(text:old==null?'':old.amount.toString()),noteC=TextEditingController(text:old?.note??'');bool income=old?.income??false;String cat=old?.category??'Other',ledger=old?.ledger??'Personal Expenses';DateTime date=old?.date??DateTime.now();final cats={...categories,cat}.toList(),accounts={...ledgers,ledger}.toList();await showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.white,builder:(ctx)=>StatefulBuilder(builder:(ctx,ss)=>Padding(padding:EdgeInsets.fromLTRB(18,18,18,MediaQuery.of(ctx).viewInsets.bottom+18),child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(old==null?'Add transaction':'Edit transaction',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:12),SegmentedButton<bool>(segments:const[ButtonSegment(value:false,label:Text('Expense')),ButtonSegment(value:true,label:Text('Income'))],selected:{income},onSelectionChanged:(v)=>ss(()=>income=v.first)),const SizedBox(height:10),TextField(controller:amountC,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (₹)')),const SizedBox(height:10),TextField(controller:titleC,decoration:const InputDecoration(labelText:'Merchant / description')),ListTile(contentPadding:EdgeInsets.zero,title:const Text('Date'),subtitle:Text(dateFmt.format(date)),trailing:const Icon(Icons.calendar_month),onTap:()async{final d=await showDatePicker(context:ctx,initialDate:date,firstDate:DateTime(2000),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)ss(()=>date=d);}),DropdownButtonFormField<String>(value:cat,decoration:const InputDecoration(labelText:'Category'),items:cats.map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),onChanged:(v)=>ss(()=>cat=v??cat)),const SizedBox(height:10),DropdownButtonFormField<String>(value:ledger,decoration:const InputDecoration(labelText:'Account / ledger'),items:accounts.map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),onChanged:(v)=>ss(()=>ledger=v??ledger)),const SizedBox(height:10),TextField(controller:noteC,decoration:const InputDecoration(labelText:'Note (optional)')),const SizedBox(height:14),SizedBox(width:double.infinity,child:FilledButton(onPressed:()async{final amount=double.tryParse(amountC.text.replaceAll(',',''));if(amount==null||amount<=0||titleC.text.trim().isEmpty){snack('Enter valid amount and description.');return;}final tx=Txn(id:old?.id??DateTime.now().microsecondsSinceEpoch.toString(),title:titleC.text.trim(),amount:amount,date:date,income:income,category:cat,ledger:ledger,note:noteC.text.trim(),source:old?.source??'Manual');try{await ref.doc(tx.id).set(tx.map(),SetOptions(merge:true));if(ctx.mounted)Navigator.pop(ctx);snack('Saved to Firebase.');}catch(e){snack('Save failed. Check Firestore rules and internet.');}},child:const Text('Save transaction'))),if(old!=null)TextButton(onPressed:()async{await ref.doc(old.id).delete();if(ctx.mounted)Navigator.pop(ctx);},child:const Text('Delete transaction'))])))));}
 
- Future<void> importFile() async {
+   Future<String> extractScannedPdfText(Uint8List bytes) async {
+    final temporaryDirectory = await getTemporaryDirectory();
+    final document = await pdf_renderer.PdfDocument.openData(bytes);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    final text = StringBuffer();
+    try {
+      for (var pageNumber = 1; pageNumber <= document.pagesCount; pageNumber++) {
+        final page = await document.getPage(pageNumber);
+        try {
+          final renderWidth = page.width > 1600 ? 1600 : page.width * 2;
+          final renderHeight = (page.height * renderWidth / page.width).round();
+          final renderedImage = await page.render(
+            width: renderWidth,
+            height: renderHeight,
+          );
+          final imagePath = '${temporaryDirectory.path}/nexora_ocr_$pageNumber.png';
+          final imageFile = File(imagePath);
+          await imageFile.writeAsBytes(renderedImage.bytes, flush: true);
+          try {
+            final recognized = await recognizer.processImage(
+              InputImage.fromFilePath(imagePath),
+            );
+            text.writeln(recognized.text);
+          } finally {
+            if (await imageFile.exists()) await imageFile.delete();
+          }
+        } finally {
+          await page.close();
+        }
+      }
+    } finally {
+      await recognizer.close();
+      await document.close();
+    }
+    return text.toString();
+  }
+
+Future<void> importFile() async {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv', 'xls', 'xlsx', 'pdf'],
@@ -213,8 +253,7 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
               'This looks like a scanned/image PDF but the file path is unavailable for OCR. Save the PDF to device storage and select it again.',
             );
           }
-          await PdfOcrClient.init();
-          extractedText = (await PdfOcrClient().extractPdfText(path)) ?? '';
+          extractedText = await extractScannedPdfText(bytes);
         }
         rows = parsePdf(extractedText);
       } else {
