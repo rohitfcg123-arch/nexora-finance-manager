@@ -24,6 +24,8 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.nexora --project-name finance_manager
           rm -f test/widget_test.dart
+          # SMS access is opt-in in the app; declare permissions for Android runtime prompts.
+          sed -i '/<manifest /a\    <uses-permission android:name="android.permission.READ_SMS" />\n    <uses-permission android:name="android.permission.RECEIVE_SMS" />' android/app/src/main/AndroidManifest.xml
           # Current Flutter plugins require Android compile SDK 36 or newer.
           if [ -f android/app/build.gradle.kts ]; then
             sed -i -E 's/^[[:space:]]*compileSdk[[:space:]]*=.*/    compileSdk = 36/' android/app/build.gradle.kts
