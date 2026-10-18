@@ -59,7 +59,7 @@ jobs:
             # Android Java tasks target 11; align both compile tasks to JVM 11.
             if ! grep -q 'jvmTarget = "11"' "$telephony_gradle"; then
               cat >> "$telephony_gradle" <<'TELEPHONY_GRADLE'
-          
+
           tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
               kotlinOptions { jvmTarget = "11" }
           }
@@ -117,10 +117,16 @@ jobs:
       - name: Print APK signing certificate fingerprints
         shell: bash
         run: |
-          APK="android_app/build/app/outputs/flutter-apk/app-debug.apk"
+          # Steps run from android_app due to job defaults; don't prefix the repo folder here.
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then
             echo "::error::apksigner was not found in Android SDK Build Tools"
+            exit 1
+          fi
+          if [ ! -s "$APK" ]; then
+            echo "::error::APK not found at $APK"
+            find android/app/build/outputs build/app/outputs -type f -name '*.apk' -print 2>/dev/null || true
             exit 1
           fi
           echo "APK signing certificate fingerprints (for App Check registration):"
