@@ -43,8 +43,20 @@ jobs:
           done
           # AGP 8+ requires a namespace; telephony 0.2.0 predates that requirement.
           telephony_gradle="$HOME/.pub-cache/hosted/pub.dev/telephony-0.2.0/android/build.gradle"
-          if [ -f "$telephony_gradle" ] && ! grep -qE '^[[:space:]]*namespace[[:space:]]' "$telephony_gradle"; then
-            sed -i '/^[[:space:]]*android[[:space:]]*{/a\    namespace "com.shounakmulay.telephony"' "$telephony_gradle"
+          if [ -f "$telephony_gradle" ]; then
+            if ! grep -qE '^[[:space:]]*namespace[[:space:]]' "$telephony_gradle"; then
+              sed -i '/^[[:space:]]*android[[:space:]]*{/a\    namespace "com.shounakmulay.telephony"' "$telephony_gradle"
+            fi
+            # Legacy telephony targets Kotlin 1.8 by default, while the generated
+            # Android Java tasks target 11; align both compile tasks to JVM 11.
+            if ! grep -q 'jvmTarget = "11"' "$telephony_gradle"; then
+              cat >> "$telephony_gradle" <<'TELEPHONY_GRADLE'
+          
+          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions { jvmTarget = "11" }
+          }
+          TELEPHONY_GRADLE
+            fi
           fi
           # Force compile SDK 36 for any plugin module still relying on Flutter defaults.
           cat >> android/build.gradle <<'GRADLE'
