@@ -384,25 +384,30 @@ Future<void> importFile() async {
   }
 
   List<List<dynamic>> parsePdf(String text){
-  // ICICI statements place the merchant, transaction amount and UPI reference
-  // on separate visual lines. Preserve layout spacing and parse each numbered
-  // transaction row instead of expecting date/narration/amount on one line.
+  // Handle common text-based bank statements, including ICICI numbered rows.
+  // Preserve layout spacing because debit/credit columns may be visually aligned.
   final rows=<List<dynamic>>[['Date','Narration','Debit','Credit']];
-  final iciciRow=RegExp(r'^\s*(\d{1,5})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s+(.*)RegExp(r'\d[\d,]*\.\d{2}');
+  final iciciRow=RegExp(r'^\s*(\d{1,5})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s+(.*)$');
+  final money=RegExp(r'\d[\d,]*\.\d{2}');
   final skip=<String>[
    'transaction remarks','withdrawal amount','deposit amount','balance (inr)',
    'transaction date','s no.','www.icici.bank.in','dial your bank',
    'please call from your registered mobile number','never share your otp',
    'statement of transactions','your base branch:','ground floor, industry house',
-   'camac street','west bengal - india','banjemari koliya','amount (inr)'
+   'camac street','west bengal - india','banjemari koliya','amount (inr)',
+   'opening balance','closing balance','total debit','total credit'
   ];
   bool inTable=false;
   final narrationLines=<String>[];
   var recognized=0;
-  for(final line in text.split(RegExp(r'[\r\n]+'))){
-   if(line.toLowerCase().contains('s no') && (line.toLowerCase().contains('date') || line.toLowerCase().contains('transaction'))){inTable=true;narrationLines.clear();continue;}
-   if(!inTable)continue;
+  final lines=text.replaceAll('\u00a0',' ').split(RegExp(r'[\r\n]+'));
+  final lowerText=text.toLowerCase();
+  final debitHeader=lowerText.indexOf('withdrawal amount');
+  final creditHeader=lowerText.indexOf('deposit amount');
+  for(final line in lines){
    final lower=line.toLowerCase();
+   if(lower.contains('s no') && (lower.contains('date') || lower.contains('transaction'))){inTable=true;narrationLines.clear();continue;}
+   if(!inTable)continue;
    if(skip.any((s)=>lower.contains(s)))continue;
    final match=iciciRow.firstMatch(line);
    if(match!=null){
@@ -410,18 +415,15 @@ Future<void> importFile() async {
     if(values.length>=2){
      final transactionAmount=values[values.length-2];
      final amount=double.tryParse(transactionAmount.group(0)!.replaceAll(',',''))??0;
-     final groupStart=line.indexOf(match.group(3)!);final absolutePosition=(groupStart<0?0:groupStart)+transactionAmount.start;
-     // In this ICICI layout, withdrawal amounts start left of the deposit
-     // column; deposits are consistently positioned farther to the right.
-     final lowerHeader=text.toLowerCase();
-     final debitHeader=lowerHeader.indexOf('withdrawal amount');
-     final creditHeader=lowerHeader.indexOf('deposit amount');
-     final isDeposit=creditHeader>=0 && debitHeader>=0 ? (creditHeader>debitHeader ? absolutePosition>=((creditHeader+debitHeader)~/2) : absolutePosition<((creditHeader+debitHeader)~/2)) : RegExp(r'\b(cr|credit|credited)\b',caseSensitive:false).hasMatch(line);
-     final candidates=narrationLines
-      .map((s)=>s.trim())
+     final groupStart=line.indexOf(match.group(3)!);
+     final absolutePosition=(groupStart<0?0:groupStart)+transactionAmount.start;
+     final midpoint=(debitHeader>=0 && creditHeader>=0)?(debitHeader+creditHeader)~/2:-1;
+     final isDeposit=midpoint>=0
+       ? (creditHeader>debitHeader ? absolutePosition>=midpoint : absolutePosition<midpoint)
+       : RegExp(r'\b(cr|credit|credited)\b',caseSensitive:false).hasMatch(line);
+     final candidates=narrationLines.map((s)=>s.trim())
       .where((s)=>s.isNotEmpty && !RegExp(r'^\d+$').hasMatch(s))
-      .where((s)=>!skip.any((x)=>s.toLowerCase().contains(x)))
-      .toList();
+      .where((s)=>!skip.any((x)=>s.toLowerCase().contains(x))).toList();
      final merchant=candidates.reversed.firstWhere(
       (s)=>!s.toUpperCase().startsWith('UPI/'),
       orElse:()=>candidates.isEmpty?'':candidates.last,
@@ -436,15 +438,19 @@ Future<void> importFile() async {
    }
    if(line.trim().isNotEmpty && !RegExp(r'^\d+$').hasMatch(line.trim())){
     narrationLines.add(line);
+    if(narrationLines.length>8)narrationLines.removeAt(0);
    }
   }
-  if(recognized>=3)return rows;
-  // Keep a conservative fallback for other text-based PDFs.
+  if(recognized>=1)return rows;
+
+  // Fallback for other text PDFs where each transaction is on one line.
   final fallback=<List<dynamic>>[['Date','Narration','Amount']];
   final date=RegExp(r'^(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})\s+(.+)$');
   final amt=RegExp(r'(-?\d[\d,]*\.\d{2})(?:\s*(CR|DR))?\s*$',caseSensitive:false);
-  for(final line in text.split(RegExp(r'[\r\n]+'))){
-   final d=date.firstMatch(line.trim());if(d==null)continue;
+  for(final line in lines){
+   final trimmed=line.trim();
+   if(trimmed.isEmpty || skip.any((x)=>trimmed.toLowerCase().contains(x)))continue;
+   final d=date.firstMatch(trimmed);if(d==null)continue;
    final a=amt.firstMatch(d.group(2)!);if(a==null)continue;
    final narr=d.group(2)!.substring(0,a.start).trim();if(narr.isEmpty)continue;
    fallback.add([d.group(1),narr,(a.group(1)??'')+(a.group(2)==null?'':' '+a.group(2)! )]);
