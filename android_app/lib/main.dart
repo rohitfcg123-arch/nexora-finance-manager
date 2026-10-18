@@ -169,8 +169,147 @@ class _HomeState extends State<Home>{
   
 Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.title??''),amountC=TextEditingController(text:old==null?'':old.amount.toString()),noteC=TextEditingController(text:old?.note??'');bool income=old?.income??false;String cat=old?.category??'Other',ledger=old?.ledger??'Personal Expenses';DateTime date=old?.date??DateTime.now();final cats={...categories,cat}.toList(),accounts={...ledgers,ledger}.toList();await showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.white,builder:(ctx)=>StatefulBuilder(builder:(ctx,ss)=>Padding(padding:EdgeInsets.fromLTRB(18,18,18,MediaQuery.of(ctx).viewInsets.bottom+18),child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(old==null?'Add transaction':'Edit transaction',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:12),SegmentedButton<bool>(segments:const[ButtonSegment(value:false,label:Text('Expense')),ButtonSegment(value:true,label:Text('Income'))],selected:{income},onSelectionChanged:(v)=>ss(()=>income=v.first)),const SizedBox(height:10),TextField(controller:amountC,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (₹)')),const SizedBox(height:10),TextField(controller:titleC,decoration:const InputDecoration(labelText:'Merchant / description')),ListTile(contentPadding:EdgeInsets.zero,title:const Text('Date'),subtitle:Text(dateFmt.format(date)),trailing:const Icon(Icons.calendar_month),onTap:()async{final d=await showDatePicker(context:ctx,initialDate:date,firstDate:DateTime(2000),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)ss(()=>date=d);}),DropdownButtonFormField<String>(value:cat,decoration:const InputDecoration(labelText:'Category'),items:cats.map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),onChanged:(v)=>ss(()=>cat=v??cat)),const SizedBox(height:10),DropdownButtonFormField<String>(value:ledger,decoration:const InputDecoration(labelText:'Account / ledger'),items:accounts.map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),onChanged:(v)=>ss(()=>ledger=v??ledger)),const SizedBox(height:10),TextField(controller:noteC,decoration:const InputDecoration(labelText:'Note (optional)')),const SizedBox(height:14),SizedBox(width:double.infinity,child:FilledButton(onPressed:()async{final amount=double.tryParse(amountC.text.replaceAll(',',''));if(amount==null||amount<=0||titleC.text.trim().isEmpty){snack('Enter valid amount and description.');return;}final tx=Txn(id:old?.id??DateTime.now().microsecondsSinceEpoch.toString(),title:titleC.text.trim(),amount:amount,date:date,income:income,category:cat,ledger:ledger,note:noteC.text.trim(),source:old?.source??'Manual');try{await ref.doc(tx.id).set(tx.map(),SetOptions(merge:true));if(ctx.mounted)Navigator.pop(ctx);snack('Saved to Firebase.');}catch(e){snack('Save failed. Check Firestore rules and internet.');}},child:const Text('Save transaction'))),if(old!=null)TextButton(onPressed:()async{await ref.doc(old.id).delete();if(ctx.mounted)Navigator.pop(ctx);},child:const Text('Delete transaction'))])))));}
 
- Future<void> importFile()async{final picked=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['csv','xls','xlsx','pdf'],withData:true);if(picked==null||picked.files.isEmpty)return;final file=picked.files.single;final bytes=file.bytes;if(bytes==null){snack('Could not read file.');return;}try{List<List<dynamic>> rows;final ext=(file.extension??'').toLowerCase();if(ext=='csv'){rows=const CsvToListConverter(shouldParseNumbers:false,allowInvalid:true).convert(utf8.decode(bytes,allowMalformed:true));}else if(ext=='xls'||ext=='xlsx'){final book=xls.Excel.decodeBytes(bytes);if(book.tables.isEmpty)throw Exception('No worksheet found.');rows=book.tables.values.first!.rows.map((r)=>r.map((c)=>c?.value?.toString()??'').toList()).toList();}else if(ext=='pdf'){String text='';final doc=PdfDocument(inputBytes:bytes);try{text=PdfTextExtractor(doc).extractText(layoutText:true);}finally{doc.dispose();}if(text.trim().length<80){final path=file.path;if(path==null||path.isEmpty)throw Exception('This looks like a scanned/image PDF but the file path is unavailable for OCR. Save the PDF to device storage and select it again.');await PdfOcrClient.init();text=await PdfOcrClient().extractPdfText(path);}rows=parsePdf(text);}else{throw Exception('Unsupported file');}final parsed=parseRows(rows);if(parsed.isEmpty)throw Exception('No transactions detected. For scanned PDFs, OCR is required; for other files, ensure Date, Narration and Debit/Credit or Amount columns are present.');if(!mounted)return;final existingIds=<String>{};for(var i=0;i<parsed.length;i+=30){final ids=parsed.skip(i).take(30).map((t)=>t.id).toList();final snap=await ref.where(FieldPath.documentId,whereIn:ids).get();existingIds.addAll(snap.docs.map((d)=>d.id));}final duplicates=parsed.where((t)=>existingIds.contains(t.id)).length;final fresh=parsed.where((t)=>!existingIds.contains(t.id)).toList();final yes=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('Import review: ${parsed.length} transactions'),content:SizedBox(width:320,height:390,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('New: ${fresh.length}  •  Already imported: $duplicates'),const SizedBox(height:8),const Text('Check dates and amounts before confirming.'),const SizedBox(height:8),Expanded(child:ListView(children:parsed.take(40).map((t)=>ListTile(dense:true,leading:Icon(existingIds.contains(t.id)?Icons.check_circle_outline:Icons.receipt_long,color:existingIds.contains(t.id)?Colors.orange:green),title:Text(t.title,maxLines:2,overflow:TextOverflow.ellipsis),subtitle:Text('${dateFmt.format(t.date)} • ${t.income?'Credit':'Debit'} • ${t.category}'),trailing:Text(fmt.format(t.amount)))).toList())))])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:Text(fresh.isEmpty?'Done':'Import ${fresh.length}'))]));if(yes!=true)return;if(fresh.isEmpty){snack('No new transactions to import. Duplicates were skipped.');return;}int added=0;for(var i=0;i<fresh.length;i+=400){final batch=FirebaseFirestore.instance.batch();for(final t in fresh.skip(i).take(400)){t.source='Statement: '+(file.name ?? 'import');batch.set(ref.doc(t.id),t.map());added++;}await batch.commit();}snack('Imported $added new transactions; skipped $duplicates duplicates. Verify statement totals.');}catch(e){snack('Import failed: '+e.toString().replaceFirst('Exception: ',''));}}
- List<List<dynamic>> parsePdf(String text){
+ Future<void> importFile() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv', 'xls', 'xlsx', 'pdf'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      snack('Could not read file.');
+      return;
+    }
+
+    try {
+      List<List<dynamic>> rows;
+      final ext = (file.extension ?? '').toLowerCase();
+      if (ext == 'csv') {
+        rows = const CsvToListConverter(
+          shouldParseNumbers: false,
+          allowInvalid: true,
+        ).convert(utf8.decode(bytes, allowMalformed: true));
+      } else if (ext == 'xls' || ext == 'xlsx') {
+        final book = xls.Excel.decodeBytes(bytes);
+        if (book.tables.isEmpty) throw Exception('No worksheet found.');
+        rows = book.tables.values.first!.rows
+            .map((r) => r.map((cell) => cell?.value?.toString() ?? '').toList())
+            .toList();
+      } else if (ext == 'pdf') {
+        var extractedText = '';
+        final pdf = PdfDocument(inputBytes: bytes);
+        try {
+          extractedText = PdfTextExtractor(pdf).extractText(layoutText: true);
+        } finally {
+          pdf.dispose();
+        }
+        if (extractedText.trim().length < 80) {
+          final path = file.path;
+          if (path == null || path.isEmpty) {
+            throw Exception(
+              'This looks like a scanned/image PDF but the file path is unavailable for OCR. Save the PDF to device storage and select it again.',
+            );
+          }
+          await PdfOcrClient.init();
+          extractedText = (await PdfOcrClient().extractPdfText(path)) ?? '';
+        }
+        rows = parsePdf(extractedText);
+      } else {
+        throw Exception('Unsupported file');
+      }
+
+      final parsed = parseRows(rows);
+      if (parsed.isEmpty) {
+        throw Exception(
+          'No transactions detected. Check that the statement contains readable Date, Narration and Debit/Credit or Amount columns.',
+        );
+      }
+      if (!mounted) return;
+
+      final existingIds = <String>{};
+      for (var i = 0; i < parsed.length; i += 30) {
+        final ids = parsed.skip(i).take(30).map((t) => t.id).toList();
+        final snapshot = await ref.where(FieldPath.documentId, whereIn: ids).get();
+        existingIds.addAll(snapshot.docs.map((d) => d.id));
+      }
+
+      final duplicates = parsed.where((t) => existingIds.contains(t.id)).length;
+      final fresh = parsed.where((t) => !existingIds.contains(t.id)).toList();
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Import review: ${parsed.length} transactions'),
+          content: SizedBox(
+            width: 320,
+            height: 390,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('New: ${fresh.length} • Already imported: ${duplicates}'),
+                const SizedBox(height: 8),
+                const Text('Check dates and amounts before confirming.'),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView(
+                    children: parsed.take(40).map<Widget>((t) {
+                      final duplicate = existingIds.contains(t.id);
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          duplicate ? Icons.check_circle_outline : Icons.receipt_long,
+                          color: duplicate ? Colors.orange : green,
+                        ),
+                        title: Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                          '${dateFmt.format(t.date)} • ${t.income ? 'Credit' : 'Debit'} • ${t.category}',
+                        ),
+                        trailing: Text(fmt.format(t.amount)),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(fresh.isEmpty ? 'Done' : 'Import ${fresh.length}'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || confirmed != true) return;
+      if (fresh.isEmpty) {
+        snack('No new transactions to import. Duplicates were skipped.');
+        return;
+      }
+
+      var added = 0;
+      for (var i = 0; i < fresh.length; i += 400) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final transaction in fresh.skip(i).take(400)) {
+          transaction.source = 'Statement: ${file.name}';
+          batch.set(ref.doc(transaction.id), transaction.map());
+          added++;
+        }
+        await batch.commit();
+      }
+      snack('Imported ${added} new transactions; skipped ${duplicates} duplicates. Verify statement totals.');
+    } catch (e) {
+      snack('Import failed: ${e.toString().replaceFirst('Exception: ', '')}');
+    }
+  }
+
+  List<List<dynamic>> parsePdf(String text){
   // ICICI statements place the merchant, transaction amount and UPI reference
   // on separate visual lines. Preserve layout spacing and parse each numbered
   // transaction row instead of expecting date/narration/amount on one line.
