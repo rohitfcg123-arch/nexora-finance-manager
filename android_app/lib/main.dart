@@ -66,12 +66,12 @@ class _HomeState extends State<Home>{
   final body = (message.body ?? '').trim();
   if (body.isEmpty) return false;
   final lower = body.toLowerCase();
-  if (RegExp(r'\\botp\\b|one.time.password|verification code|do not share|never share').hasMatch(lower)) return false;
+  if (RegExp(r'\botp\b|one.time.password|verification code|do not share|never share').hasMatch(lower)) return false;
   final debit = RegExp(r'debited|spent|withdrawn|paid|purchase|sent|payment of').hasMatch(lower);
   final credit = RegExp(r'credited|received|deposited|refund|cashback|salary credited').hasMatch(lower);
   if (debit == credit) return false;
-  final amountMatch = RegExp(r'(?:inr|rs\\.?|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body)
-      ?? RegExp(r'(?:amount|amt)\\s*[:=-]?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body);
+  final amountMatch = RegExp(r'(?:inr|rs\.?|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body)
+      ?? RegExp(r'(?:amount|amt)\s*[:=-]?\s*([0-9,]+(?:\.[0-9]{1,2})?)', caseSensitive: false).firstMatch(body);
   if (amountMatch == null) return false;
   final amount = double.tryParse(amountMatch.group(1)!.replaceAll(',', ''));
   if (amount == null || amount <= 0) return false;
@@ -79,7 +79,7 @@ class _HomeState extends State<Home>{
   final address = message.address ?? 'bank';
   final fingerprint = '$address|${message.date ?? 0}|$body';
   final id = 'sms_${base64Url.encode(utf8.encode(fingerprint)).replaceAll('=', '').substring(0, 28)}';
-  final merchantMatch = RegExp(r'(?:at|to|from)\\s+([A-Za-z0-9 .&_-]{2,40})', caseSensitive: false).firstMatch(body);
+  final merchantMatch = RegExp(r'(?:at|to|from)\s+([A-Za-z0-9 .&_-]{2,40})', caseSensitive: false).firstMatch(body);
   final title = merchantMatch?.group(1)?.trim() ?? (credit ? 'Bank credit' : 'Bank debit');
   try {
    await ref.doc(id).set(Txn(id:id,title:title,amount:amount,date:date,income:credit,category:autoCat(title,credit),ledger:credit?'Income Account':'Personal Expenses',note:'SMS sender: $address',source:'Bank SMS').map(), SetOptions(merge:true));
@@ -375,7 +375,7 @@ Future<void> edit([Txn? old])async{final titleC=TextEditingController(text:old?.
   }
   return fallback;
  }
- List<Txn> parseRows(List<List<dynamic>> rows){if(rows.length<2)return[];String norm(dynamic v)=>v.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final h=rows.first.map(norm).toList();int ix(List<String> names)=>h.indexWhere((x)=>names.any((n)=>x.contains(n)));final di=ix(['date','transactiondate','valuedate']),ni=ix(['narration','description','particulars','details','remarks','merchant','payee']),de=ix(['debit','withdrawal','paidout']),cr=ix(['credit','deposit','paidin']),am=ix(['amount','transactionamount']);if(di<0||ni<0||(de<0&&cr<0&&am<0))throw Exception('Could not identify Date, Narration and amount columns.');String cell(List<dynamic> r,int i)=>i>=0&&i<r.length?r[i].toString().trim():'';double val(String s)=>double.tryParse(s.replaceAll(RegExp(r'[^0-9.]'),''))??0;DateTime? dt(String s){for(final f in ['dd/MM/yyyy','dd-MM-yyyy','dd.MM.yyyy','d/M/yy','yyyy-MM-dd','dd MMM yyyy']){try{return DateFormat(f).parseStrict(s);}catch(_){}}return null;}final out=<Txn>[];for(final r in rows.skip(1)){final title=cell(r,ni);if(title.isEmpty)continue;final debit=val(cell(r,de)),credit=val(cell(r,cr));final raw=cell(r,am);final income=credit>0?true:debit>0?false:(raw.toLowerCase().contains('cr')||raw.startsWith('+'));final amount=credit>0?credit:debit>0?debit:val(raw);if(amount<=0)continue;final parsedDate=dt(cell(r,di));if(parsedDate==null)continue;final normalizedTitle=title.toLowerCase().replaceAll(RegExp(r'\\s+'),' ').trim();final fingerprint='${DateFormat('yyyy-MM-dd').format(parsedDate)}|$normalizedTitle|${amount.toStringAsFixed(2)}|$income';final stableId=base64Url.encode(utf8.encode(fingerprint)).replaceAll('=','');out.add(Txn(id:'stmt_${stableId.substring(0,stableId.length>180?180:stableId.length)}',title:title,amount:amount,date:parsedDate,income:income,category:autoCat(title,income),ledger:income?'Income Account':'Personal Expenses',source:'Statement import'));}return out;}
+ List<Txn> parseRows(List<List<dynamic>> rows){if(rows.length<2)return[];String norm(dynamic v)=>v.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'),'');final h=rows.first.map(norm).toList();int ix(List<String> names)=>h.indexWhere((x)=>names.any((n)=>x.contains(n)));final di=ix(['date','transactiondate','valuedate']),ni=ix(['narration','description','particulars','details','remarks','merchant','payee']),de=ix(['debit','withdrawal','paidout']),cr=ix(['credit','deposit','paidin']),am=ix(['amount','transactionamount']);if(di<0||ni<0||(de<0&&cr<0&&am<0))throw Exception('Could not identify Date, Narration and amount columns.');String cell(List<dynamic> r,int i)=>i>=0&&i<r.length?r[i].toString().trim():'';double val(String s)=>double.tryParse(s.replaceAll(RegExp(r'[^0-9.]'),''))??0;DateTime? dt(String s){for(final f in ['dd/MM/yyyy','dd-MM-yyyy','dd.MM.yyyy','d/M/yy','yyyy-MM-dd','dd MMM yyyy']){try{return DateFormat(f).parseStrict(s);}catch(_){}}return null;}final out=<Txn>[];for(final r in rows.skip(1)){final title=cell(r,ni);if(title.isEmpty)continue;final debit=val(cell(r,de)),credit=val(cell(r,cr));final raw=cell(r,am);final income=credit>0?true:debit>0?false:(raw.toLowerCase().contains('cr')||raw.startsWith('+'));final amount=credit>0?credit:debit>0?debit:val(raw);if(amount<=0)continue;final parsedDate=dt(cell(r,di));if(parsedDate==null)continue;final normalizedTitle=title.toLowerCase().replaceAll(RegExp(r'\s+'),' ').trim();final fingerprint='${DateFormat('yyyy-MM-dd').format(parsedDate)}|$normalizedTitle|${amount.toStringAsFixed(2)}|$income';final stableId=base64Url.encode(utf8.encode(fingerprint)).replaceAll('=','');out.add(Txn(id:'stmt_${stableId.substring(0,stableId.length>180?180:stableId.length)}',title:title,amount:amount,date:parsedDate,income:income,category:autoCat(title,income),ledger:income?'Income Account':'Personal Expenses',source:'Statement import'));}return out;}
  String autoCatUnused(String n,bool income){if(income)return'Salary / Income';final s=n.toLowerCase();if(RegExp(r'amazon|flipkart|myntra').hasMatch(s))return'Shopping';if(RegExp(r'swiggy|zomato|restaurant|cafe|food').hasMatch(s))return'Food & Dining';if(RegExp(r'uber|ola|irctc|petrol|fuel|flight').hasMatch(s))return'Travel';if(RegExp(r'electricity|broadband|mobile bill|water bill').hasMatch(s))return'Utilities';if(RegExp(r'bank charge|atm fee').hasMatch(s))return'Bank Charges';return'Other';}
  void snack(String s){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));}
 }
