@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexora Finance Manager — Privacy Policy</title>
+<style>body{font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif;max-width:850px;margin:32px auto;padding:0 18px;color:#17231e}h1,h2{color:#075c43}a{overflow-wrap:anywhere}</style>
+</head>
+<body>
+<h1>Nexora Finance Manager — Privacy Policy</h1>
+<p><strong>Effective date:</strong> 18 October 2026</p>
+<p>This policy explains how Nexora Finance Manager ("Nexora", "we") handles information when you use the app. The app provides personal finance tracking, manual transaction entry, bank-statement import and optional bank SMS tracking.</p>
+<h2>Information processed</h2>
+<ul>
+<li><strong>Account information:</strong> email address and account identifier used by Firebase Authentication.</li>
+<li><strong>Financial transactions:</strong> transaction title, amount, date, income/expense classification, category, ledger, notes and source that you enter or import.</li>
+<li><strong>Optional SMS tracking:</strong> only after you choose to enable it and grant Android SMS permissions, Nexora reads SMS messages on your device to look for bank transaction notifications. Message text is processed on-device by the app's current parser. When a message is recognised, the app saves derived transaction fields to your user-scoped Firestore collection, including amount, date, title/category and the SMS sender address in the transaction note. The app is not designed to upload the full SMS body. Detection can be incomplete or incorrect, so review transactions.</li>
+<li><strong>Statement files:</strong> a file you select for import is processed by the app to extract transaction rows. Review the preview before relying on imported results.</li>
+</ul>
+<h2>Why information is used</h2>
+<p>Information is used to sign you in, show and synchronise your finance records, import statements, detect possible bank transactions from SMS when enabled, and prevent duplicate SMS-derived entries. Nexora does not ask for bank passwords, UPI PINs or OTPs.</p>
+<h2>Storage and service providers</h2>
+<p>Account and transaction records are stored using Google Firebase Authentication and Cloud Firestore. These services process data under Google's applicable terms and privacy practices. Access to transaction records is scoped by the app to the signed-in user's account, but no online service can be guaranteed completely risk-free.</p>
+<h2>Your choices and permissions</h2>
+<p>SMS tracking is optional. You can decline the disclosure or deny Android SMS permissions; SMS-based detection will then not run. You can use manual entry and supported statement imports instead. Android settings can be used to revoke SMS permissions. Revoking permission stops future inbox access but does not automatically delete transactions already saved to your account.</p>
+<h2>Retention and deletion</h2>
+<p>Records remain in your account until they are deleted through available app features or a deletion request is processed. For help with account or data deletion, contact the developer at <a href="mailto:rohit.fcg123@gmail.com">rohit.fcg123@gmail.com</a>. Include the account email in the request, but never send passwords, bank credentials, PINs or OTPs.</p>
+<h2>Children and sharing</h2>
+<p>Nexora is intended for personal finance management, not for children. We do not sell personal financial information. Do not use the app to process another person's messages or financial records without lawful authority and their permission.</p>
+<h2>Security and accuracy</h2>
+<p>Use a strong account password and keep your device secure. SMS parsing is rule-based and may misread a transaction or miss a bank format. Always verify entries against your bank records. This app is not a bank and does not provide a live Account Aggregator connection.</p>
+<h2>Changes and contact</h2>
+<p>This policy may be updated when the app's data practices change. The effective date above will be revised. Questions or data-deletion requests: <a href="mailto:rohit.fcg123@gmail.com">rohit.fcg123@gmail.com</a>.</p>
+</body></html>
