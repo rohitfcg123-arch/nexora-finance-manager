@@ -61,7 +61,8 @@ class _HomeState extends State<Home>{
  int tab=0; String search='',filter='All';
  final Telephony smsApi = Telephony.instance;
  bool smsTrackingEnabled = false;
- @override void initState(){super.initState();}
+ DateTime? reportStart, reportEnd;
+ @override void initState(){super.initState(); FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('categories').snapshots().listen((snapshot){ if(!mounted)return; final custom=snapshot.docs.map((d)=>(d.data()['name']??'').toString()).where((v)=>v.trim().isNotEmpty); setState(()=>categories={...categories,...custom}.toList()); }); }
 
  Future<void> enableSmsTracking() async {
   // Show a prominent in-app disclosure and obtain affirmative consent before requesting SMS access.
@@ -86,12 +87,12 @@ class _HomeState extends State<Home>{
   try {
    final granted = await smsApi.requestPhoneAndSmsPermissions ?? false;
    if (!granted) { snack('SMS permission was not granted. Tracking remains off.'); return; }
+   smsApi.listenIncomingSms(onNewMessage: (SmsMessage message) async { await saveBankSms(message); }, listenInBackground: false);
    setState(() => smsTrackingEnabled = true);
    final messages = await smsApi.getInboxSms(columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE]);
    var imported = 0;
    for (final message in messages) { if (await saveBankSms(message)) imported++; }
-   smsApi.listenIncomingSms(onNewMessage: (SmsMessage message) { saveBankSms(message); }, listenInBackground: false);
-   snack('SMS tracking enabled. Imported $imported detected transactions from existing messages.');
+   snack('SMS tracking enabled. Imported $imported detected transactions. New bank SMS will be checked while Nexora is open.');
   } catch (e) { snack('Could not enable SMS tracking: $e'); }
  }
 
@@ -120,7 +121,7 @@ class _HomeState extends State<Home>{
   } catch (_) { return false; }
  }
  CollectionReference<Map<String,dynamic>> get ref=>FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('transactions');
- final categories=['Food & Dining','Shopping','Travel','Utilities','Salary / Income','Bank Charges','Transfer','Health','Other'];
+ List<String> categories=['Food & Dining','Shopping','Travel','Utilities','Salary / Income','Bank Charges','Transfer','Health','Other'];
  final ledgers=['Personal Expenses','Office Expenses','Business Expenses','Bank Account','Income Account'];
  String autoCat(String n,bool income){if(income)return 'Salary / Income';final s=n.toLowerCase();if(RegExp(r'amazon|flipkart|myntra').hasMatch(s))return 'Shopping';if(RegExp(r'swiggy|zomato|restaurant|cafe|food').hasMatch(s))return 'Food & Dining';if(RegExp(r'uber|ola|irctc|petrol|fuel|flight').hasMatch(s))return 'Travel';if(RegExp(r'electricity|broadband|mobile bill|water bill').hasMatch(s))return 'Utilities';if(RegExp(r'bank charge|atm fee').hasMatch(s))return 'Bank Charges';return 'Other';}
  @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:Row(children:[Container(width:38,height:38,alignment:Alignment.center,decoration:BoxDecoration(color:green,borderRadius:BorderRadius.circular(12)),child:const Text('N',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:22)),),const SizedBox(width:10),const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Nexora',style:TextStyle(fontWeight:FontWeight.w900)),Text('FINANCE MANAGER',style:TextStyle(fontSize:9,letterSpacing:1.1))])]),actions:[IconButton(onPressed:importFile,icon:const Icon(Icons.upload_file)),IconButton(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout))]),body:IndexedStack(index:tab,children:[dashboard(),transactions(),reports(),settings()]),floatingActionButton:tab<2?FloatingActionButton.extended(backgroundColor:green,foregroundColor:Colors.white,onPressed:()=>edit(),icon:const Icon(Icons.add),label:const Text('Add transaction')):null,bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),backgroundColor:Colors.white,indicatorColor:mint,destinations:const[NavigationDestination(icon:Icon(Icons.home_outlined),label:'Home'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Transactions'),NavigationDestination(icon:Icon(Icons.pie_chart_outline),label:'Reports'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'Settings')]));
@@ -170,7 +171,27 @@ class _HomeState extends State<Home>{
  Widget title(String t,String action,VoidCallback cb)=>Row(children:[Expanded(child:Text(t,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900))),TextButton(onPressed:cb,child:Text(action))]);
  Widget tile(Txn t)=>Card(color:Colors.white,elevation:0,child:ListTile(onTap:()=>edit(t),leading:CircleAvatar(backgroundColor:t.income?mint:const Color(0xFFFFF1E7),child:Icon(t.income?Icons.south_west:Icons.north_east,color:t.income?green:Colors.deepOrange)),title:Text(t.title,style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text(t.category+' • '+DateFormat('dd MMM').format(t.date)+' • '+t.source,style:const TextStyle(fontSize:10)),trailing:Text((t.income?'+':'−')+fmt.format(t.amount),style:TextStyle(fontWeight:FontWeight.w800,color:t.income?green:ink))));
  Widget transactions()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).where((t)=>(filter=='All'||(filter=='Income'?t.income:!t.income))&&(t.title+' '+t.category+' '+t.note).toLowerCase().contains(search.toLowerCase())).toList();return ListView(padding:const EdgeInsets.all(16),children:[const Text('Transactions',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:10),TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search transactions')),Wrap(spacing:8,children:['All','Expense','Income'].map((v)=>ChoiceChip(label:Text(v),selected:filter==v,onSelected:(_)=>setState(()=>filter=v))).toList()),...list.map(tile)]);});
- Widget reports()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){final list=(s.data?.docs??[]).map(Txn.doc).toList();final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);final totals=<String,double>{};for(final t in list.where((t)=>!t.income)){totals[t.category]=(totals[t.category]??0)+t.amount;}final entries=totals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));return ListView(padding:const EdgeInsets.all(16),children:[const Text('Reports & analytics',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:12),FilledButton.icon(onPressed:()=>exportReport(list),icon:const Icon(Icons.picture_as_pdf),label:const Text('Generate PDF report')),const SizedBox(height:12),Text('Income: '+fmt.format(inc)),Text('Expenses: '+fmt.format(exp)),const SizedBox(height:18),const Text('Expenses by category',style:TextStyle(fontWeight:FontWeight.w800)),...entries.map((e)=>ListTile(title:Text(e.key),subtitle:LinearProgressIndicator(value:exp==0?0:e.value/exp,color:green,backgroundColor:mint),trailing:Text(fmt.format(e.value))))]);});
+ Widget reports()=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:ref.orderBy('date',descending:true).limit(500).snapshots(),builder:(c,s){
+  final all=(s.data?.docs??[]).map(Txn.doc).toList();
+  final list=all.where((t)=>(reportStart==null||!t.date.isBefore(DateTime(reportStart!.year,reportStart!.month,reportStart!.day)))&&(reportEnd==null||t.date.isBefore(DateTime(reportEnd!.year,reportEnd!.month,reportEnd!.day).add(const Duration(days:1))))).toList();
+  final inc=list.where((t)=>t.income).fold<double>(0,(a,t)=>a+t.amount);
+  final exp=list.where((t)=>!t.income).fold<double>(0,(a,t)=>a+t.amount);
+  final totals=<String,double>{};for(final t in list.where((t)=>!t.income)){totals[t.category]=(totals[t.category]??0)+t.amount;}
+  final entries=totals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
+  return ListView(padding:const EdgeInsets.all(16),children:[
+   const Text('Reports & analytics',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),
+   Wrap(spacing:8,runSpacing:8,children:[
+    OutlinedButton.icon(onPressed:()async{final d=await showDatePicker(context:context,initialDate:reportStart??DateTime.now(),firstDate:DateTime(2000),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>reportStart=d);},icon:const Icon(Icons.calendar_month),label:Text(reportStart==null?'Start date':dateFmt.format(reportStart!))),
+    OutlinedButton.icon(onPressed:()async{final d=await showDatePicker(context:context,initialDate:reportEnd??DateTime.now(),firstDate:reportStart??DateTime(2000),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>reportEnd=d);},icon:const Icon(Icons.event),label:Text(reportEnd==null?'End date':dateFmt.format(reportEnd!))),
+    TextButton.icon(onPressed:()=>setState((){reportStart=null;reportEnd=null;}),icon:const Icon(Icons.clear),label:const Text('Clear dates')),
+   ]),
+   Text('Transactions in selected period: '+list.length.toString()),
+   Wrap(spacing:8,children:[FilledButton.icon(onPressed:()=>exportReport(list),icon:const Icon(Icons.picture_as_pdf),label:const Text('Download PDF')),OutlinedButton.icon(onPressed:()=>exportCsvReport(list),icon:const Icon(Icons.download),label:const Text('Download CSV'))]),
+   Text('Income: '+fmt.format(inc)),Text('Expenses: '+fmt.format(exp)),Text('Net: '+fmt.format(inc-exp)),
+   const SizedBox(height:18),const Text('Expenses by category',style:TextStyle(fontWeight:FontWeight.w800)),
+   ...entries.map((e)=>ListTile(title:Text(e.key),subtitle:LinearProgressIndicator(value:exp==0?0:e.value/exp,color:green,backgroundColor:mint),trailing:Text(fmt.format(e.value)))),
+  ]);
+ });
   Widget settings() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
@@ -188,6 +209,7 @@ class _HomeState extends State<Home>{
           if (!opened && mounted) snack('Could not open the privacy policy. Visit the link from the app website.');
         },
       ),
+      ListTile(leading: const Icon(Icons.category_outlined), title: const Text('Custom categories'), subtitle: const Text('Create categories for transactions and reports'), trailing: const Icon(Icons.chevron_right), onTap: manageCategories),
       ListTile(
         leading: const Icon(Icons.sms_outlined),
         title: const Text('Bank SMS tracking'),
@@ -495,6 +517,23 @@ Future<void> importFile() async {
     }
   }
 
+
+ Future<void> exportCsvReport(List<Txn> transactions) async {
+  try {
+   final rows=<List<dynamic>>[['Date','Description','Type','Amount','Category','Ledger','Note','Source'], ...transactions.map((t)=>[DateFormat('yyyy-MM-dd').format(t.date),t.title,t.income?'Income':'Expense',t.amount,t.category,t.ledger,t.note,t.source])];
+   final bytes=Uint8List.fromList(const ListToCsvConverter().convert(rows).codeUnits);
+   final path=await FilePicker.platform.saveFile(fileName:'Nexora_Transactions.csv',bytes:bytes,type:FileType.custom,allowedExtensions:['csv']);
+   if(path==null){snack('CSV export cancelled.');return;} snack('CSV report exported.');
+  } catch(e) { snack('CSV export failed: $e'); }
+ }
+
+ Future<void> manageCategories() async {
+  final controller=TextEditingController();
+  await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Add custom category'),content:TextField(controller:controller,autofocus:true,decoration:const InputDecoration(labelText:'Category name')),actions:[
+   TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Cancel')),
+   FilledButton(onPressed:()async{final name=controller.text.trim();if(name.isEmpty)return;try{await FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('categories').doc(base64Url.encode(utf8.encode(name.toLowerCase())).replaceAll('=','')).set({'name':name,'createdAt':FieldValue.serverTimestamp()});if(!categories.contains(name))setState(()=>categories.add(name));if(ctx.mounted)Navigator.pop(ctx);snack('Category added.');}catch(e){snack('Could not save category. Check Firestore rules.');}},child:const Text('Add category'))
+  ]));
+ }
 
  Future<void> exportReport(List<Txn> transactions) async {
   final sorted=[...transactions]..sort((a,b)=>a.date.compareTo(b.date));
